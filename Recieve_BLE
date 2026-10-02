@@ -1,0 +1,63 @@
+import asyncio
+from bleak import BleakClient, BleakScanner
+
+SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+TARGET_DEVICE_NAME = "ESP32_PN532_Gateway"
+
+assembled_data = bytearray() 
+
+def notification_handler(sender, data):
+    global assembled_data
+    try:
+        # Marker "[END]" 
+        if data == b"[END]":
+            # ถอดรหัส UTF-8 ทั้งหมด
+            final_message = assembled_data.decode('utf-8')
+            
+            print("\n" + "="*50)
+            print(f"[✅ รับข้อมูลสมบูรณ์]: {final_message}")
+            print("="*50 + "\n")
+            
+            assembled_data.clear()
+        else:
+            assembled_data.extend(data)
+            print(f"รับชิ้นส่วนขนาด {len(data)} bytes (กำลังประกอบ...)")
+            
+    except UnicodeDecodeError:
+        print("\n❌ ถอดรหัสภาษาไทยไม่สำเร็จ (ข้อมูลอาจสูญหายระหว่างส่ง)")
+        assembled_data.clear()
+    except Exception as e:
+        print(f"\n❌ เกิดข้อผิดพลาด: {e}")
+
+async def main():
+    print("กำลังสแกนหาอุปกรณ์ BLE...")
+    device = await BleakScanner.find_device_by_name(TARGET_DEVICE_NAME)
+
+    if device is None:
+        print(f"ไม่พบอุปกรณ์ชื่อ '{TARGET_DEVICE_NAME}'")
+        return
+
+    print(f"พบอุปกรณ์: {device.name}")
+
+    try:
+        async with BleakClient(device) as client:
+            print(f"เชื่อมต่อสำเร็จ!")
+            
+            # เปิด Notify
+            await client.start_notify(CHARACTERISTIC_UUID, notification_handler)
+            
+            print("รอรับข้อมูล... (กด Ctrl+C เพื่อออก)")
+            while True:
+                await asyncio.sleep(1)
+                
+    except asyncio.exceptions.CancelledError:
+        print("\nหยุดการทำงาน")
+    except Exception as e:
+        print(f"\nการเชื่อมต่อมีปัญหา: {e}")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nปิดโปรแกรม")
